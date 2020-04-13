@@ -59,7 +59,7 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public bool Loop
         {
-            get { return _loop; }
+            get { return true; }
             set
             {
                 _loop = value;
@@ -136,6 +136,8 @@ namespace Plugin.SimpleAudioPlayer
         {
             if (player == null)
                 return;
+
+            player.NumberOfLoops = -1;
 
             if (player.Playing)
                 player.CurrentTime = 0;
@@ -221,7 +223,11 @@ namespace Plugin.SimpleAudioPlayer
 
         public void ChangePitch(float amountToChange)
         {
-            throw new NotImplementedException();
+            if(player != null)
+            {
+                player.EnableRate = true;
+                player.Rate = amountToChange;
+            }
         }
     }
 }
