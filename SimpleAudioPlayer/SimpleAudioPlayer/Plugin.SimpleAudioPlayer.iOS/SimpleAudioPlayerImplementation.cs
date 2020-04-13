@@ -16,6 +16,9 @@ namespace Plugin.SimpleAudioPlayer
 		public event EventHandler PlaybackEnded;
 
         AVAudioPlayer player;
+        AVAudioEngine engine;
+        AVAudioPlayerNode playerNode;
+        AVAudioUnitTimePitch timePitchNode;
 
         ///<Summary>
         /// Length of audio in seconds
@@ -137,6 +140,14 @@ namespace Plugin.SimpleAudioPlayer
             if (player == null)
                 return;
 
+            if (engine == null)
+                return;
+
+            if (engine.)
+                player.CurrentTime = 0;
+            else
+                player?.Play();
+
             if (player.Playing)
                 player.CurrentTime = 0;
             else
@@ -149,6 +160,7 @@ namespace Plugin.SimpleAudioPlayer
         public void Pause()
         {
             player?.Pause();
+            engine?.Pause();
         }
 
         ///<Summary>
@@ -157,6 +169,7 @@ namespace Plugin.SimpleAudioPlayer
         public void Stop()
         {
             player?.Stop();
+            engine?.Stop();
             Seek(0);
         }
 
@@ -217,6 +230,11 @@ namespace Plugin.SimpleAudioPlayer
             Dispose(true);
 
             GC.SuppressFinalize(this);
+        }
+
+        public void ChangePitch(float amountToChange)
+        {
+            throw new NotImplementedException();
         }
     }
 }
