@@ -15,14 +15,13 @@ namespace Plugin.SimpleAudioPlayer
 		///</Summary>
 		public event EventHandler PlaybackEnded;
 
-        //AVAudioPlayer player;
         AVAudioEngine engine;
-        //AVAudioUnitVarispeed speed;
         AVAudioUnitTimePitch pitch;
         AVAudioPlayerNode player;
         AVAudioFile audioFile;
         private float _bpm;
         private float _adjustedBpm;
+        private bool _hasPlayedFirst = false;
 
         ///<Summary>
         /// Length of audio in seconds
@@ -72,9 +71,7 @@ namespace Plugin.SimpleAudioPlayer
                 _loop = value;
                 if (player != null)
                 {
-
                 }
-                    //player.NumberOfLoops = _loop ? -1 : 0;
             }
         }
         bool _loop;
@@ -93,8 +90,6 @@ namespace Plugin.SimpleAudioPlayer
             DeletePlayer();
 
             var data = NSData.FromStream(audioStream);
-
-            //player = AVAudioPlayer.FromData(data);
 
             return PreparePlayer();
         }
@@ -130,15 +125,12 @@ namespace Plugin.SimpleAudioPlayer
             {
                 engine = new AVAudioEngine();
                 player = new AVAudioPlayerNode();
-                //speed = new AVAudioUnitVarispeed();
                 pitch = new AVAudioUnitTimePitch();
 
                 engine.AttachNode(player);
                 engine.AttachNode(pitch);
-                //engine.AttachNode(speed);
 
                 engine.Connect(player, pitch, audioFile.ProcessingFormat);
-                //engine.Connect(speed, pitch, audioFile.ProcessingFormat);
                 engine.Connect(pitch, engine.MainMixerNode, audioFile.ProcessingFormat);
 
                 engine.Prepare();
@@ -146,22 +138,17 @@ namespace Plugin.SimpleAudioPlayer
                 engine.StartAndReturnError(out startError);
             }
 
-            return PreparePlayer();
-        }
-
-        bool PreparePlayer()
-        {
-            if(engine != null && engine.Running)
-            {
-                return true;
-            }
-
-            return false;
+            return true;
         }
 
         void DeletePlayer()
         {
             Stop();
+
+            if (player != null && player.Playing)
+            {
+                player.Stop();
+            }
 
             if (engine != null && engine.Running)
             {
@@ -170,14 +157,11 @@ namespace Plugin.SimpleAudioPlayer
 
             if (player != null && engine != null && pitch != null)
             {
-                //player.FinishedPlaying -= OnPlaybackEnded;
                 engine.Dispose();
                 player.Dispose();
-                //speed.Dispose();
                 pitch.Dispose();
                 engine = null;
                 player = null;
-                //speed = null;
                 pitch = null;
             }
         }
@@ -195,21 +179,16 @@ namespace Plugin.SimpleAudioPlayer
             if (player == null)
                 return;
 
-            //player.EnableRate = true;
-            //player.NumberOfLoops = -1;
-
-            if (player.Playing)
+            if(!_hasPlayedFirst)
             {
-                player.Stop();
+                NSError er;
+                var audioFileBuffer = new AVAudioPcmBuffer(audioFile.ProcessingFormat, (uint)audioFile.Length);
+                audioFile.ReadIntoBuffer(audioFileBuffer, out er);
+                player.ScheduleBuffer(audioFileBuffer, null, AVAudioPlayerNodeBufferOptions.Loops, null);
+                _hasPlayedFirst = true;
             }
 
-            player.Play();
-
-            NSError er;
-            var audioFileBuffer = new AVAudioPcmBuffer(audioFile.ProcessingFormat, (uint) audioFile.Length);
-            audioFile.ReadIntoBuffer(audioFileBuffer, out er);
-
-            player.ScheduleBuffer(audioFileBuffer, null, AVAudioPlayerNodeBufferOptions.Loops, null);
+            player.PlayAtTime(new AVAudioTime(0));
         }
 
         ///<Summary>
@@ -225,7 +204,7 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public void Stop()
         {
-            player?.Stop();
+            player?.Pause();
             Seek(0);
         }
 
@@ -253,6 +232,7 @@ namespace Plugin.SimpleAudioPlayer
             player.Volume = (float)volume;
             player.Pan = (float)balance;
         }
+
         void OnPlaybackEnded()
         {
             PlaybackEnded?.Invoke(this, EventArgs.Empty);
@@ -293,10 +273,8 @@ namespace Plugin.SimpleAudioPlayer
             if(player != null)
             {
                 _adjustedBpm = amountToChange;
-                //player.EnableRate = true;
                 pitch.Rate = _adjustedBpm / _bpm;
-                //speed.Rate = amountToChange;
-                //pitch.Pitch = Remap(amountToChange, 0.5f, 2.0f, -2400, 2400);
+                //pitch.Pitch = Remap(amountToChange, 55, 220, -2400, 2400);
             }
         }
 
