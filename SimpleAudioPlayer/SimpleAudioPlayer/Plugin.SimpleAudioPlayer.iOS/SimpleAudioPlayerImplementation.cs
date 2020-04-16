@@ -9,25 +9,29 @@ namespace Plugin.SimpleAudioPlayer
   /// Implementation for SimpleAudioPlayer
   /// </summary>
   public class SimpleAudioPlayerImplementation : ISimpleAudioPlayer
-  {
+    {
 		///<Summary>
 		/// Raised when playback completes or loops
 		///</Summary>
 		public event EventHandler PlaybackEnded;
 
-        AVAudioPlayer player;
+        //AVAudioPlayer player;
+        AVAudioEngine engine;
+        AVAudioUnitVarispeed speed;
+        AVAudioUnitTimePitch pitch;
+        AVAudioPlayerNode player;
 
         ///<Summary>
         /// Length of audio in seconds
         ///</Summary>
         public double Duration
-        { get { return player == null ? 0 : player.Duration; } }
+        { get { return 0; } }
 
         ///<Summary>
         /// Current position of audio in seconds
         ///</Summary>
         public double CurrentPosition
-        { get { return player == null ? 0 : player.CurrentTime; } }
+        { get { return 0; } }
 
         ///<Summary>
         /// Playback volume (0 to 1)
@@ -64,7 +68,10 @@ namespace Plugin.SimpleAudioPlayer
             {
                 _loop = value;
                 if (player != null)
-                    player.NumberOfLoops = _loop ? -1 : 0;
+                {
+
+                }
+                    //player.NumberOfLoops = _loop ? -1 : 0;
             }
         }
         bool _loop;
@@ -84,7 +91,7 @@ namespace Plugin.SimpleAudioPlayer
 
             var data = NSData.FromStream(audioStream);
 
-            player = AVAudioPlayer.FromData(data);
+            //player = AVAudioPlayer.FromData(data);
 
             return PreparePlayer();
         }
@@ -96,31 +103,85 @@ namespace Plugin.SimpleAudioPlayer
         {
             DeletePlayer();
 
-            player = AVAudioPlayer.FromUrl(NSUrl.FromFilename(fileName));
+            NSError error = new NSError();
+            AVAudioFile audioFile = null;
+
+            try
+            {
+                if (!String.IsNullOrWhiteSpace(fileName))
+                {
+                    string directory = Path.GetDirectoryName(fileName);
+                    string filename = Path.GetFileNameWithoutExtension(fileName);
+                    string extension = Path.GetExtension(fileName).Substring(1);
+                    NSUrl url = NSBundle.MainBundle.GetUrlForResource(filename, extension, directory);
+                    audioFile = new AVAudioFile(url, out error);
+                }
+
+            }
+            catch (Exception e)
+            {
+                return false;
+            }
+
+            if(audioFile != null)
+            {
+                engine = new AVAudioEngine();
+                player = new AVAudioPlayerNode();
+                speed = new AVAudioUnitVarispeed();
+                pitch = new AVAudioUnitTimePitch();
+
+                engine.AttachNode(player);
+                engine.AttachNode(pitch);
+                engine.AttachNode(speed);
+                
+                engine.Connect(player, speed, audioFile.ProcessingFormat);
+                engine.Connect(speed, pitch, audioFile.ProcessingFormat);
+                engine.Connect(pitch, engine.MainMixerNode, audioFile.ProcessingFormat);
+
+                player.ScheduleFile(audioFile, new AVAudioTime(0), OnPlaybackEnded);
+            }
 
             return PreparePlayer();
         }
 
         bool PreparePlayer()
         {
-            if (player != null)
+            if(engine != null)
             {
-                player.FinishedPlaying += OnPlaybackEnded;
-                player.PrepareToPlay();
+                NSError error = new NSError();
+                engine.StartAndReturnError(out error);
+
+                if (error != null)
+                {
+                    return false;
+                }
+
+                return true;
             }
 
-            return (player == null) ? false : true;
+            return false;
         }
 
         void DeletePlayer()
         {
             Stop();
 
-            if(player != null)
+            if (engine != null && engine.Running)
             {
-                player.FinishedPlaying -= OnPlaybackEnded;
+                engine.Stop();
+            }
+
+            if (player != null && engine != null && pitch != null && speed != null)
+            {
+                //player.FinishedPlaying -= OnPlaybackEnded;
+                engine.Dispose();
                 player.Dispose();
+                speed.Dispose();
+                pitch.Dispose();
+                engine = null;
                 player = null;
+                speed = null;
+                pitch = null;
             }
         }
 
@@ -137,10 +198,11 @@ namespace Plugin.SimpleAudioPlayer
             if (player == null)
                 return;
 
-            player.NumberOfLoops = -1;
+            //player.EnableRate = true;
+            //player.NumberOfLoops = -1;
 
             if (player.Playing)
-                player.CurrentTime = 0;
+                player.Stop();
             else
                 player?.Play();
         }
@@ -169,7 +231,7 @@ namespace Plugin.SimpleAudioPlayer
         {
             if (player == null)
                 return;
-            player.CurrentTime = position;
+            //player.CurrentTime = position;
         }
 
         void SetVolume(double volume, double balance)
@@ -225,9 +287,15 @@ namespace Plugin.SimpleAudioPlayer
         {
             if(player != null)
             {
-                player.EnableRate = true;
-                player.Rate = amountToChange;
+                //player.EnableRate = true;
+                //player.Rate = amountToChange;
+                pitch.Pitch = amountToChange;
             }
+        }
+
+        bool ISimpleAudioPlayer.IsPlaying()
+        {
+            return player?.Playing ?? false;
         }
     }
 }

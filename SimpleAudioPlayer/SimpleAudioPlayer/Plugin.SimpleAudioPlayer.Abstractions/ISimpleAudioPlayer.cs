@@ -53,5 +53,11 @@ namespace Plugin.SimpleAudioPlayer
         /// </summary>
         /// <param name="amountToChange">The amount to change the pitch rate, 0.5 to 2.0 on Android</param>
         void ChangePitch(float amountToChange);
+
+        /// <summary>
+        /// Determines whether the audio player is currently streaming sound
+        /// </summary>
+        /// <returns></returns>
+        bool IsPlaying();
     }
 }
