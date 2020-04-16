@@ -91,7 +91,7 @@ namespace Plugin.SimpleAudioPlayer
 
             var data = NSData.FromStream(audioStream);
 
-            return PreparePlayer();
+            return true;
         }
 
         ///<Summary>
