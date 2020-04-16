@@ -17,9 +17,12 @@ namespace Plugin.SimpleAudioPlayer
 
         //AVAudioPlayer player;
         AVAudioEngine engine;
-        AVAudioUnitVarispeed speed;
+        //AVAudioUnitVarispeed speed;
         AVAudioUnitTimePitch pitch;
         AVAudioPlayerNode player;
+        AVAudioFile audioFile;
+        private float _bpm;
+        private float _adjustedBpm;
 
         ///<Summary>
         /// Length of audio in seconds
@@ -99,12 +102,12 @@ namespace Plugin.SimpleAudioPlayer
         ///<Summary>
         /// Load wave or mp3 audio file from the Android assets folder
         ///</Summary>
-        public bool Load(string fileName)
+        public bool Load(string fileName, float bpm)
         {
+            _bpm = bpm;
             DeletePlayer();
 
             NSError error = new NSError();
-            AVAudioFile audioFile = null;
 
             try
             {
@@ -127,18 +130,20 @@ namespace Plugin.SimpleAudioPlayer
             {
                 engine = new AVAudioEngine();
                 player = new AVAudioPlayerNode();
-                speed = new AVAudioUnitVarispeed();
+                //speed = new AVAudioUnitVarispeed();
                 pitch = new AVAudioUnitTimePitch();
 
                 engine.AttachNode(player);
                 engine.AttachNode(pitch);
-                engine.AttachNode(speed);
-                
-                engine.Connect(player, speed, audioFile.ProcessingFormat);
-                engine.Connect(speed, pitch, audioFile.ProcessingFormat);
+                //engine.AttachNode(speed);
+
+                engine.Connect(player, pitch, audioFile.ProcessingFormat);
+                //engine.Connect(speed, pitch, audioFile.ProcessingFormat);
                 engine.Connect(pitch, engine.MainMixerNode, audioFile.ProcessingFormat);
 
-                player.ScheduleFile(audioFile, new AVAudioTime(0), OnPlaybackEnded);
+                engine.Prepare();
+                NSError startError = new NSError();
+                engine.StartAndReturnError(out startError);
             }
 
             return PreparePlayer();
@@ -146,16 +151,8 @@ namespace Plugin.SimpleAudioPlayer
 
         bool PreparePlayer()
         {
-            if(engine != null)
+            if(engine != null && engine.Running)
             {
-                NSError error = new NSError();
-                engine.StartAndReturnError(out error);
-
-                if (error != null)
-                {
-                    return false;
-                }
-
                 return true;
             }
 
@@ -171,16 +168,16 @@ namespace Plugin.SimpleAudioPlayer
                 engine.Stop();
             }
 
-            if (player != null && engine != null && pitch != null && speed != null)
+            if (player != null && engine != null && pitch != null)
             {
                 //player.FinishedPlaying -= OnPlaybackEnded;
                 engine.Dispose();
                 player.Dispose();
-                speed.Dispose();
+                //speed.Dispose();
                 pitch.Dispose();
                 engine = null;
                 player = null;
-                speed = null;
+                //speed = null;
                 pitch = null;
             }
         }
@@ -202,9 +199,17 @@ namespace Plugin.SimpleAudioPlayer
             //player.NumberOfLoops = -1;
 
             if (player.Playing)
+            {
                 player.Stop();
-            else
-                player?.Play();
+            }
+
+            player.Play();
+
+            NSError er;
+            var audioFileBuffer = new AVAudioPcmBuffer(audioFile.ProcessingFormat, (uint) audioFile.Length);
+            audioFile.ReadIntoBuffer(audioFileBuffer, out er);
+
+            player.ScheduleBuffer(audioFileBuffer, null, AVAudioPlayerNodeBufferOptions.Loops, null);
         }
 
         ///<Summary>
@@ -287,10 +292,27 @@ namespace Plugin.SimpleAudioPlayer
         {
             if(player != null)
             {
+                _adjustedBpm = amountToChange;
                 //player.EnableRate = true;
-                //player.Rate = amountToChange;
-                pitch.Pitch = amountToChange;
+                pitch.Rate = _adjustedBpm / _bpm;
+                //speed.Rate = amountToChange;
+                //pitch.Pitch = Remap(amountToChange, 0.5f, 2.0f, -2400, 2400);
             }
+        }
+
+        public float Remap(float from, float fromMin, float fromMax, float toMin, float toMax)
+        {
+            var fromAbs = from - fromMin;
+            var fromMaxAbs = fromMax - fromMin;
+
+            var normal = fromAbs / fromMaxAbs;
+
+            var toMaxAbs = toMax - toMin;
+            var toAbs = toMaxAbs * normal;
+
+            var to = toAbs + toMin;
+
+            return to;
         }
 
         bool ISimpleAudioPlayer.IsPlaying()
