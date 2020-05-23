@@ -1,7 +1,8 @@
-using Android.Content.Res;
+﻿using Android.Content.Res;
+using Android.Media;
 using System;
-using System.Collections.Generic;
 using System.IO;
+using Stream = System.IO.Stream;
 using Uri = Android.Net.Uri;
 
 namespace Plugin.SimpleAudioPlayer
@@ -17,9 +18,24 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public event EventHandler PlaybackEnded;
 
-        Android.Media.SoundPool pool;
+        Android.Media.MediaPlayer player;
+        MediaPlayer mNextPlayer = null;
+
+        PlaybackParams playbackParams;
 
         static int index = 0;
+
+        ///<Summary>
+        /// Length of audio in seconds
+        ///</Summary>
+        public double Duration
+        { get { return player == null ? 0 : ((double)player.Duration) / 1000.0; } }
+
+        ///<Summary>
+        /// Current position of audio playback in seconds
+        ///</Summary>
+        public double CurrentPosition
+        { get { return player == null ? 0 : ((double)player.CurrentPosition) / 1000.0; } }
 
         ///<Summary>
         /// Playback volume (0 to 1)
@@ -42,53 +58,40 @@ namespace Plugin.SimpleAudioPlayer
         double _balance = 0;
 
         ///<Summary>
-        /// Sets the maximum of number of simultaneous streams that can be played simultaneously.
+        /// Indicates if the currently loaded audio file is playing
         ///</Summary>
-        public int MaxStreams
-        {
-            get { return _maxStreams; }
-            set { _maxStreams = value; }
-        }
-        int _maxStreams;
+        public bool IsPlaying
+        { get { return player == null ? false : player.IsPlaying; } }
 
-        float _pitchSpeed;
+        ///<Summary>
+        /// Continously repeats the currently playing sound
+        ///</Summary>
+        public bool Loop
+        {
+            get { return _loop; }
+            set { _loop = value; if (player != null) player.Looping = _loop; }
+        }
+        bool _loop;
+
+        ///<Summary>
+        /// Indicates if the position of the loaded audio file can be updated
+        ///</Summary>
+        public bool CanSeek
+        { get { return player == null ? false : true; } }
 
         string path;
-
-        private List<int> soundIds;
-        private List<int> sampleIds;
-        private int currentlyPlayingSampleId;
 
         /// <summary>
         /// Instantiates a new SimpleAudioPlayer
         /// </summary>
         public SimpleAudioPlayerImplementation()
         {
-            soundIds = new List<int>();
-            sampleIds = new List<int>();
-            _pitchSpeed = 1;
+            player = new Android.Media.MediaPlayer();
+            player.Completion += OnPlaybackEnded;
 
-            var audioAttributes = new Android.Media.AudioAttributes.Builder()
-                .SetContentType(Android.Media.AudioContentType.Sonification)
-                .SetUsage(Android.Media.AudioUsageKind.AssistanceSonification)
-                .SetLegacyStreamType(Android.Media.Stream.Music)
-                .Build();
-            pool = new Android.Media.SoundPool.Builder()
-                .SetMaxStreams(MaxStreams)
-                .SetAudioAttributes(audioAttributes)
-                .Build();
-
-            pool.LoadComplete += Pool_LoadComplete;
-
-            SetVolume(_volume, _balance);
-        }
-
-        private void Pool_LoadComplete(object sender, Android.Media.SoundPool.LoadCompleteEventArgs e)
-        {
-            if(e.Status == 0)
-            {
-                sampleIds.Add(e.SampleId);
-            }
+            mNextPlayer = new Android.Media.MediaPlayer();
+            //mNextPlayer.Completion += OnPlaybackEnded;
+            player.SetNextMediaPlayer(mNextPlayer);
         }
 
         ///<Summary>
@@ -96,6 +99,8 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public bool Load(Stream audioStream)
         {
+            player.Reset();
+
             DeleteFile(path);
 
             //cache to the file system
@@ -106,14 +111,14 @@ namespace Plugin.SimpleAudioPlayer
 
             try
             {
-                soundIds.Add(pool.Load(path, 1));
+                player.SetDataSource(path);
             }
             catch
             {
                 try
                 {
                     var context = Android.App.Application.Context;
-                    //streamIds.Add(pool.Load(context, Uri.Parse(Uri.Encode(path))));
+                    player?.SetDataSource(context, Uri.Parse(Uri.Encode(path)));
                 }
                 catch
                 {
@@ -121,31 +126,58 @@ namespace Plugin.SimpleAudioPlayer
                 }
             }
 
-            return true;
+            return PreparePlayer();
         }
 
         ///<Summary>
-        /// Load wav or mp3 audio file from the Android Resources folder
+        /// Load wav or mp3 audio file from the iOS Resources folder
         ///</Summary>
         public bool Load(string fileName)
         {
+            player.Reset();
+
             AssetFileDescriptor afd = Android.App.Application.Context.Assets.OpenFd(fileName);
 
-            soundIds.Add(pool.Load(afd, 1));
+            player?.SetDataSource(afd.FileDescriptor, afd.StartOffset, afd.Length);
 
-            return true;
+            return PreparePlayer();
+        }
+
+        bool PreparePlayer()
+        {
+            if(player != null)
+            {
+                player.Prepare();
+                Loop = true;
+
+                playbackParams = new PlaybackParams();
+                //playbackParams.SetSpeed(1.0f);
+                player.PlaybackParams = playbackParams;
+
+                return true;
+            }
+
+            return false;
         }
 
         void DeletePlayer()
         {
             Stop();
 
-            if (pool != null)
+            if (player != null)
             {
-                pool.LoadComplete -= Pool_LoadComplete;
-                pool.Release();
-                pool.Dispose();
-                pool = null;                
+                player.Completion -= OnPlaybackEnded;
+                player.Release();
+                player.Dispose();
+                player = null;
+            }
+
+            if (mNextPlayer != null)
+            {
+                mNextPlayer.Completion -= OnPlaybackEnded;
+                mNextPlayer.Release();
+                mNextPlayer.Dispose();
+                mNextPlayer = null;
             }
 
             DeleteFile(path);
@@ -171,20 +203,16 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public void Play()
         {
-        }
-
-        ///<Summary>
-        /// Begin playback or resume if paused
-        ///</Summary>
-        public void Play(int soundId)
-        {
-            if (pool == null)
+            if (player == null)
                 return;
 
-            currentlyPlayingSampleId = soundId;
+            if (IsPlaying)
+            {
+                Pause();
+                Seek(0);
+            }
 
-            var volume = GetVolume();
-            pool.Play(soundId, volume.Item1, volume.Item2, 1, -1, _pitchSpeed);
+            player.Start();
         }
 
         ///<Summary>
@@ -192,8 +220,11 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public void Stop()
         {
-            pool?.Stop(currentlyPlayingSampleId);
-            PlaybackEnded(this, null);
+            if (!IsPlaying)
+                return;
+
+            Pause();
+            Seek(0);
         }
 
         ///<Summary>
@@ -201,22 +232,16 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public void Pause()
         {
-            pool?.Pause(currentlyPlayingSampleId);
+            player?.Pause();
         }
 
-        (float, float) GetVolume()
+        ///<Summary>
+        /// Set the current playback position (in seconds)
+        ///</Summary>
+        public void Seek(double position)
         {
-            Volume = Math.Max(0, Volume);
-            Volume = Math.Min(1, Volume);
-
-            Balance = Math.Max(-1, Balance);
-            Balance = Math.Min(1, Balance);
-
-            // Using the "constant power pan rule." See: http://www.rs-met.com/documents/tutorials/PanRules.pdf
-            var left = Math.Cos((Math.PI * (Balance + 1)) / 4) * Volume;
-            var right = Math.Sin((Math.PI * (Balance + 1)) / 4) * Volume;
-
-            return ((float)left, (float)right);
+            if (CanSeek)
+                player?.SeekTo((int)position * 1000);
         }
 
         ///<Summary>
@@ -235,7 +260,20 @@ namespace Plugin.SimpleAudioPlayer
             var left = Math.Cos((Math.PI * (balance + 1)) / 4) * volume;
             var right = Math.Sin((Math.PI * (balance + 1)) / 4) * volume;
 
-            pool?.SetVolume(0, (float)left, (float)right);
+            player?.SetVolume((float)left, (float)right);
+        }
+
+        void OnPlaybackEnded(object sender, EventArgs e)
+        {
+            PlaybackEnded?.Invoke(sender, e);
+
+            //this improves stability on older devices but has minor performance impact
+            if (Android.OS.Build.VERSION.SdkInt < Android.OS.BuildVersionCodes.M)
+            {
+                player.SeekTo(0);
+                player.Stop();
+                player.Prepare();
+            }
         }
 
         bool isDisposed = false;
@@ -245,7 +283,7 @@ namespace Plugin.SimpleAudioPlayer
 		///</Summary>
        	protected virtual void Dispose(bool disposing)
         {
-            if (isDisposed || pool == null)
+            if (isDisposed || player == null)
                 return;
 
             if (disposing)
@@ -259,24 +297,33 @@ namespace Plugin.SimpleAudioPlayer
             Dispose(false);
         }
 
-		///<Summary>
-		/// Dispose SimpleAudioPlayer and release resources
-		///</Summary>
-		public void Dispose()
+        ///<Summary>
+        /// Dispose SimpleAudioPlayer and release resources
+        ///</Summary>
+        public void Dispose()
         {
             Dispose(true);
 
             GC.SuppressFinalize(this);
         }
 
+        public bool Load(string fileName, float bpm)
+        {
+            throw new NotImplementedException();
+        }
+
         public void ChangePitch(float amountToChange)
         {
-            _pitchSpeed = amountToChange;
+            if(playbackParams != null)
+            {
+                player.PlaybackParams = player.PlaybackParams.SetSpeed(amountToChange).SetPitch(amountToChange);
+                
+            }
+        }
 
-            amountToChange = Math.Max(amountToChange, 0.5f);
-            amountToChange = Math.Min(amountToChange, 2.0f);
-
-            pool?.SetRate(currentlyPlayingSampleId, amountToChange);
+        bool ISimpleAudioPlayer.IsPlaying()
+        {
+            return IsPlaying;
         }
     }
 }

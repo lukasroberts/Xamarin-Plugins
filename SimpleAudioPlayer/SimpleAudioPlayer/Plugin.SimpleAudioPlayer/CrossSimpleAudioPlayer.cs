@@ -36,8 +36,7 @@ namespace Plugin.SimpleAudioPlayer
 #if NETSTANDARD1_0
           return null;
 #else
-            //return new SimpleAudioPlayerImplementation();
-            return new AVAudioEngineSimplePlayerImplementation();
+            return new SimpleAudioPlayerImplementation();
 #endif
         }
 

@@ -31,7 +31,7 @@ namespace Plugin.SimpleAudioPlayer
         ///<Summary>
         /// Load wav or mp3 audio file from local path
         ///</Summary>
-        bool Load(string fileName, float bpm);
+        bool Load(string fileName);
 
         ///<Summary>
         /// Begin playback or resume if paused

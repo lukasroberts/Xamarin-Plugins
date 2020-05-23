@@ -47,9 +47,10 @@
     <Compile Include="..\Plugin.SimpleAudioPlayer\CrossSimpleAudioPlayer.cs">
       <Link>CrossSimpleAudioPlayer.cs</Link>
     </Compile>
-    <Compile Include="SimpleAudioPlayerImplementation.cs" />
+    <Compile Include="SoundPoolAudioPlayerImplementation.cs" />
     <Compile Include="Resources\Resource.Designer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="SimpleAudioPlayerImplementation.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Plugin.SimpleAudioPlayer.Abstractions\Plugin.SimpleAudioPlayer.Abstractions.csproj">

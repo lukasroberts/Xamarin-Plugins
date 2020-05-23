@@ -1,4 +1,5 @@
-﻿using AVFoundation;
+
+using AVFoundation;
 using Foundation;
 using System;
 using System.IO;
@@ -8,32 +9,26 @@ namespace Plugin.SimpleAudioPlayer
     /// <summary>
     /// Implementation for SimpleAudioPlayer
     /// </summary>
-    public class AVAudioEngineSimplePlayerImplementation : ISimpleAudioPlayer
+    public class AVAudioPlayerImplementation : ISimpleAudioPlayer
     {
         ///<Summary>
         /// Raised when playback completes or loops
         ///</Summary>
         public event EventHandler PlaybackEnded;
 
-        AVAudioEngine engine;
-        AVAudioUnitTimePitch pitch;
-        AVAudioPlayerNode player;
-        AVAudioFile audioFile;
-        private float _bpm;
-        private float _adjustedBpm;
-        private bool _hasPlayedFirst = false;
+        AVAudioPlayer player;
 
         ///<Summary>
         /// Length of audio in seconds
         ///</Summary>
         public double Duration
-        { get { return 0; } }
+        { get { return player == null ? 0 : player.Duration; } }
 
         ///<Summary>
         /// Current position of audio in seconds
         ///</Summary>
         public double CurrentPosition
-        { get { return 0; } }
+        { get { return player == null ? 0 : player.CurrentTime; } }
 
         ///<Summary>
         /// Playback volume (0 to 1)
@@ -65,13 +60,12 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public bool Loop
         {
-            get { return true; }
+            get { return _loop; }
             set
             {
                 _loop = value;
                 if (player != null)
-                {
-                }
+                    player.NumberOfLoops = _loop ? -1 : 0;
             }
         }
         bool _loop;
@@ -91,78 +85,43 @@ namespace Plugin.SimpleAudioPlayer
 
             var data = NSData.FromStream(audioStream);
 
-            return true;
+            player = AVAudioPlayer.FromData(data);
+
+            return PreparePlayer();
         }
 
         ///<Summary>
         /// Load wave or mp3 audio file from the Android assets folder
         ///</Summary>
-        public bool Load(string fileName, float bpm)
+        public bool Load(string fileName)
         {
-            _bpm = bpm;
             DeletePlayer();
 
-            NSError error = new NSError();
+            player = AVAudioPlayer.FromUrl(NSUrl.FromFilename(fileName));
 
-            try
-            {
-                if (!String.IsNullOrWhiteSpace(fileName))
-                {
-                    string directory = Path.GetDirectoryName(fileName);
-                    string filename = Path.GetFileNameWithoutExtension(fileName);
-                    string extension = Path.GetExtension(fileName).Substring(1);
-                    NSUrl url = NSBundle.MainBundle.GetUrlForResource(filename, extension, directory);
-                    audioFile = new AVAudioFile(url, out error);
-                }
+            return PreparePlayer();
+        }
 
-            }
-            catch (Exception e)
+        bool PreparePlayer()
+        {
+            if (player != null)
             {
-                return false;
+                player.FinishedPlaying += OnPlaybackEnded;
+                player.PrepareToPlay();               
             }
 
-            if (audioFile != null)
-            {
-                engine = new AVAudioEngine();
-                player = new AVAudioPlayerNode();
-                pitch = new AVAudioUnitTimePitch();
-
-                engine.AttachNode(player);
-                engine.AttachNode(pitch);
-
-                engine.Connect(player, pitch, audioFile.ProcessingFormat);
-                engine.Connect(pitch, engine.MainMixerNode, audioFile.ProcessingFormat);
-
-                engine.Prepare();
-                NSError startError = new NSError();
-                engine.StartAndReturnError(out startError);
-            }
-
-            return true;
+            return (player == null) ? false : true;
         }
 
         void DeletePlayer()
         {
             Stop();
 
-            if (player != null && player.Playing)
+            if (player != null)
             {
-                player.Stop();
-            }
-
-            if (engine != null && engine.Running)
-            {
-                engine.Stop();
-            }
-
-            if (player != null && engine != null && pitch != null)
-            {
-                engine.Dispose();
+                player.FinishedPlaying -= OnPlaybackEnded;
                 player.Dispose();
-                pitch.Dispose();
-                engine = null;
                 player = null;
-                pitch = null;
             }
         }
 
@@ -179,16 +138,13 @@ namespace Plugin.SimpleAudioPlayer
             if (player == null)
                 return;
 
-            if (!_hasPlayedFirst)
-            {
-                NSError er;
-                var audioFileBuffer = new AVAudioPcmBuffer(audioFile.ProcessingFormat, (uint)audioFile.Length);
-                audioFile.ReadIntoBuffer(audioFileBuffer, out er);
-                player.ScheduleBuffer(audioFileBuffer, null, AVAudioPlayerNodeBufferOptions.Loops, null);
-                _hasPlayedFirst = true;
-            }
+            player.EnableRate = true;
+            player.NumberOfLoops = -1;
 
-            player.PlayAtTime(new AVAudioTime(0));
+            if (player.Playing)
+                player.CurrentTime = 0;
+            else
+                player?.Play();
         }
 
         ///<Summary>
@@ -204,7 +160,7 @@ namespace Plugin.SimpleAudioPlayer
         ///</Summary>
         public void Stop()
         {
-            player?.Pause();
+            player?.Stop();
             Seek(0);
         }
 
@@ -215,7 +171,7 @@ namespace Plugin.SimpleAudioPlayer
         {
             if (player == null)
                 return;
-            //player.CurrentTime = position;
+            player.CurrentTime = position;
         }
 
         void SetVolume(double volume, double balance)
@@ -232,7 +188,6 @@ namespace Plugin.SimpleAudioPlayer
             player.Volume = (float)volume;
             player.Pan = (float)balance;
         }
-
         void OnPlaybackEnded()
         {
             PlaybackEnded?.Invoke(this, EventArgs.Empty);
@@ -253,7 +208,7 @@ namespace Plugin.SimpleAudioPlayer
             isDisposed = true;
         }
 
-        ~AVAudioEngineSimplePlayerImplementation()
+        ~AVAudioPlayerImplementation()
         {
             Dispose(false);
         }
@@ -268,29 +223,18 @@ namespace Plugin.SimpleAudioPlayer
             GC.SuppressFinalize(this);
         }
 
+        public bool Load(string fileName, float bpm)
+        {
+            throw new NotImplementedException();
+        }
+
         public void ChangePitch(float amountToChange)
         {
             if (player != null)
             {
-                _adjustedBpm = amountToChange;
-                pitch.Rate = _adjustedBpm / _bpm;
-                //pitch.Pitch = Remap(amountToChange, 55, 220, -2400, 2400);
+                player.EnableRate = true;
+                player.Rate = amountToChange;
             }
-        }
-
-        public float Remap(float from, float fromMin, float fromMax, float toMin, float toMax)
-        {
-            var fromAbs = from - fromMin;
-            var fromMaxAbs = fromMax - fromMin;
-
-            var normal = fromAbs / fromMaxAbs;
-
-            var toMaxAbs = toMax - toMin;
-            var toAbs = toMaxAbs * normal;
-
-            var to = toAbs + toMin;
-
-            return to;
         }
 
         bool ISimpleAudioPlayer.IsPlaying()
